@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   AppState,
   SafeAreaView,
@@ -23,7 +23,7 @@ const noteMap: Map<Note, Array<number>> = new Map([
   [Note.FSharp, [1, 254, 254]],
   [Note.G, [1, 128, 254]],
   [Note.GSharp, [1, 1, 254]],
-  [Note.A, [127, 1 ,254]],
+  [Note.A, [127, 1, 254]],
   [Note.ASharp, [254, 1, 254]],
   [Note.B, [254, 1, 127]],
 ]);
@@ -33,19 +33,21 @@ const App = () => {
   const IPKEY = 'ipKey';
   const USERNAME_KEY = 'usernameKey';
 
-  interface NoteState {
-    previousNote: Note | undefined,
-    currentNote: Note | undefined
-  }
   const appState = useRef(AppState.currentState);
   const [appActive, setAppActive] = useState(appState.current === 'active');
-  const [noteState, setNoteState] = useState<NoteState>();
-  const [controller, setController] = useState<Controllr>();
-  const [allLights, setAllLights] = useState<Map<Number, Light>>();
   const [ip, setIp] = useState<string>();
   const [userName, setUserName] = useState<string>();
   const [cacheHit, setCacheHit] = useState<boolean | undefined>(undefined);
-  const [updateCount, setUpdateCount] = useState(0);
+  const [allLights, setAllLights] = useState<Map<Number, Light>>(
+    new Map<Number, Light>(),
+  );
+  const [controllr, setControllr] = useState<Controllr>();
+  const [currentNote, setCurrentNote] = useState<Note>();
+
+  let previousMax = useRef<Note>();
+  previousMax.current = Note.A;
+  let noteBuffer = useRef<Note[]>();
+  noteBuffer.current = [];
 
   useEffect(() => {
     if (cacheHit === false) {
@@ -70,7 +72,7 @@ const App = () => {
             }
           };
           setStorage();
-          setController(createdController);
+          setControllr(createdController);
           createdController.lights.getAll(lightResponse => {
             setAllLights(lightResponse);
           });
@@ -82,7 +84,7 @@ const App = () => {
       userName !== undefined
     ) {
       const createdController = Controllr.createFromIpAndUser(ip, userName);
-      setController(createdController);
+      setControllr(createdController);
       createdController.lights.getAll(lightResponse => {
         setAllLights(lightResponse);
       });
@@ -119,27 +121,54 @@ const App = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (
-      controller !== undefined &&
-      allLights !== undefined &&
-      noteState &&
-      noteState.previousNote !== noteState.currentNote &&
-      noteState.currentNote
-    ) {
-      const rgb = noteMap.get(noteState.currentNote);
-      if (rgb) {
-        const r = rgb[0];
-        const g = rgb[1];
-        const b = rgb[2];
-        allLights.forEach((value, key, _) => {
-          controller.lights.putState(key, {
+  const callApi = useCallback(() => {
+    let freqMap: Map<string, number> = new Map();
+    noteBuffer.current?.forEach(note => {
+      if (freqMap.has(note)) {
+        freqMap.set(note, freqMap.get(note)! + 1);
+      } else {
+        freqMap.set(note, 1);
+      }
+    });
+
+    let maxCount = -1;
+    let maxEl: Note = Note.A;
+    freqMap.forEach((count, note) => {
+      if (count > maxCount) {
+        maxCount = count;
+        maxEl = note as Note;
+      }
+    });
+
+    if (maxEl === previousMax.current) {
+      noteBuffer.current = [maxEl];
+      return;
+    } else {
+      previousMax.current = maxEl;
+    }
+    const rgb = noteMap.get(maxEl);
+    setCurrentNote(maxEl);
+    if (rgb) {
+      const r = rgb[0];
+      const g = rgb[1];
+      const b = rgb[2];
+      allLights.forEach((value, key, _) => {
+        if (controllr !== undefined) {
+          controllr.lights.putState(key, {
             xy: getFromRGB(r, g, b),
           });
-        });
-      }
+        }
+      });
     }
-  }, [noteState]);
+    noteBuffer.current = [maxEl];
+  }, [allLights, controllr]);
+
+  useEffect(() => {
+    const intervalId = setInterval(callApi, 500);
+    return () => {
+      clearInterval(intervalId);
+    };
+  });
 
   const isDarkMode = useColorScheme() === 'dark';
 
@@ -155,22 +184,11 @@ const App = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <Text>{noteState?.currentNote}</Text>
+      <Text>{currentNote}</Text>
       <AudioModule
         isAppActive={appActive}
         onNoteDetected={(note: Note) => {
-
-          // trying to prevent batching, doesnt work bc async
-          const currentUpdateCount = updateCount + 1;
-          console.log(currentUpdateCount);
-          if (updateCount > 8) {
-            setNoteState({
-              previousNote: noteState?.currentNote,
-              currentNote: note
-            })
-            setUpdateCount(0);
-          }
-          setUpdateCount(currentUpdateCount);
+          noteBuffer.current?.push(note);
         }}
       />
     </SafeAreaView>
