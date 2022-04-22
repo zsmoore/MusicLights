@@ -7,6 +7,7 @@ import {
   Text,
   useColorScheme,
 } from 'react-native';
+import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import AudioModule, {Note} from 'react-native-note-detectr';
 import {Colors} from 'react-native/Libraries/NewAppScreen';
 import Controllr, {getFromRGB} from 'react-native-huecontrollr';
@@ -43,6 +44,7 @@ const App = () => {
   );
   const [controllr, setControllr] = useState<Controllr>();
   const [currentNote, setCurrentNote] = useState<Note>();
+  const [intervalLength, setIntervalLength] = useState<number>(2000);
 
   let previousMax = useRef<Note>();
   previousMax.current = Note.A;
@@ -164,11 +166,11 @@ const App = () => {
   }, [allLights, controllr]);
 
   useEffect(() => {
-    const intervalId = setInterval(callApi, 500);
+    const intervalId = setInterval(callApi, intervalLength);
     return () => {
       clearInterval(intervalId);
     };
-  });
+  }, [intervalLength, callApi]);
 
   const isDarkMode = useColorScheme() === 'dark';
 
@@ -184,6 +186,16 @@ const App = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <MultiSlider
+        min={100}
+        max={10000}
+        values={[2000]}
+        enableLabel={true}
+        customLabel={() => <Text>{intervalLength}</Text>}
+        onValuesChangeFinish={values => {
+          setIntervalLength(values[0]);
+        }}
+      />
       <Text>{currentNote}</Text>
       <AudioModule
         isAppActive={appActive}
